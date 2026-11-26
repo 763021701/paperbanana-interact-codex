@@ -32,6 +32,12 @@ macOS 和 Linux 也可以运行 `./launch`。打开 [本地应用](http://127.0.
 
 如果默认端口已被占用，在启动命令末尾加 `--port 7862`，然后打开 [备用端口](http://127.0.0.1:7862)。
 
+## 选择模型
+
+展开 **Overall Settings**。**Main Model** 从当前账号的 Codex 模型目录列出支持文本和图片输入的模型。选 **Codex default** 会跟随 Codex 的默认模型，也可以指定列表里的模型。切换账号后，点 **Refresh Codex models** 重新读取列表。
+
+**Image Model** 的默认选项是 Codex 内置生图。Codex 自动选择图像模型。两个下拉框也接受已经配置好相应 API 的上游模型名。 [Codex 内置生图说明](https://learn.chatgpt.com/docs/image-generation)
+
 ## 手动指定 Codex 路径
 
 桥接器依次查找 `PAPERBANANA_CODEX_BIN`、`PATH` 中的 `codex`、macOS ChatGPT App 内置的 Codex。如果安装在自定义目录，或者终端通过别名调用 Codex，可以直接指定可执行文件的完整路径。将示例路径替换成自己的路径，再在同一个终端运行启动命令。

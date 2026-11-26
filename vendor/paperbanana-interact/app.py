@@ -310,7 +310,8 @@ def candidate_tile(result: dict, index: int, mode: str, key_prefix: str, pin=Non
                         gr.Markdown(clean_text(result[suggestion_key]))
 
 
-def build_app() -> gr.Blocks:
+# Modified for PaperBanana-Interact Codex Bridge: clients can supply their model selectors.
+def build_app(*, model_fields=None) -> gr.Blocks:
     with gr.Blocks(title="PaperBanana", fill_width=True) as app:
         generation_state = gr.State([])
         generation_mode_state = gr.State("demo_full")
@@ -338,18 +339,21 @@ def build_app() -> gr.Blocks:
         with gr.Row(elem_classes="settings-row"):
             with gr.Accordion("⚙️ Overall Settings", open=False, elem_classes="settings-accordion"):
                 with gr.Row():
-                    main_model = gr.Textbox(
-                        value=DEFAULT_MAIN_MODEL,
-                        label="Main Model",
-                        info="Text model for planning, critique and refinement.",
-                        scale=2,
-                    )
-                    image_model = gr.Textbox(
-                        value=DEFAULT_IMAGE_MODEL,
-                        label="Image Model",
-                        info="Image model that renders the diagram.",
-                        scale=2,
-                    )
+                    if model_fields is None:
+                        main_model = gr.Textbox(
+                            value=DEFAULT_MAIN_MODEL,
+                            label="Main Model",
+                            info="Text model for planning, critique and refinement.",
+                            scale=2,
+                        )
+                        image_model = gr.Textbox(
+                            value=DEFAULT_IMAGE_MODEL,
+                            label="Image Model",
+                            info="Image model that renders the diagram.",
+                            scale=2,
+                        )
+                    else:
+                        main_model, image_model = model_fields()
                     ratio = gr.Dropdown(
                         ["21:9", "16:9", "3:2"],
                         value="21:9",

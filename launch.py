@@ -1,6 +1,7 @@
 """Run the bundled PaperBanana-Interact Gradio UI with the Codex provider."""
 
 import argparse
+import asyncio
 import base64
 from functools import wraps
 import os
@@ -10,14 +11,69 @@ import sys
 import gradio as gr
 from google.genai import types
 
-from codex_bridge import BridgeError, IMAGE_MODEL, TEXT_MODEL, find_codex, model_response
+from codex_bridge import (
+    BridgeError,
+    IMAGE_MODEL,
+    TEXT_MODEL,
+    TEXT_MODEL_PREFIX,
+    find_codex,
+    list_codex_models,
+    model_response,
+)
 
 UPSTREAM = Path(__file__).resolve().parent / "vendor" / "paperbanana-interact"
 BRIDGE_NOTICE = (
     "Uses the ChatGPT account already signed in to Codex. "
-    "Leave API keys blank when using codex and codex-image. "
+    "Leave API keys blank when using the Codex bridge. "
     "Paper text and attached figures are sent to ChatGPT."
 )
+DEFAULT_TEXT_CHOICES = (("Codex default", TEXT_MODEL),)
+
+
+async def codex_model_choices():
+    choices = list(DEFAULT_TEXT_CHOICES)
+    for entry in await list_codex_models():
+        model_id = entry.get("model")
+        if not model_id or not {"text", "image"}.issubset(entry.get("inputModalities") or []):
+            continue
+        label = entry.get("displayName") or model_id
+        choices.append((label, TEXT_MODEL_PREFIX + model_id))
+    return choices
+
+
+def model_fields(choices):
+    main = gr.Dropdown(
+        choices=choices,
+        value=TEXT_MODEL,
+        label="Main Model",
+        info="Codex LLM for planning, critique and refinement.",
+        allow_custom_value=True,
+        scale=2,
+    )
+    image = gr.Dropdown(
+        choices=[("Codex built-in image generation (automatic)", IMAGE_MODEL)],
+        value=IMAGE_MODEL,
+        label="Image Model",
+        info="Codex selects the built-in image model automatically.",
+        allow_custom_value=True,
+        scale=2,
+    )
+    refresh = gr.Button("Refresh Codex models", size="sm", scale=0)
+
+    async def refresh_choices(selected):
+        try:
+            available = await codex_model_choices()
+        except (BridgeError, OSError, ValueError) as error:
+            gr.Warning(f"Could not load the Codex model list: {error}")
+            return gr.skip()
+        if not selected or (
+            selected.startswith(TEXT_MODEL_PREFIX) and selected not in {value for _, value in available}
+        ):
+            selected = TEXT_MODEL
+        return gr.update(choices=available, value=selected)
+
+    refresh.click(refresh_choices, inputs=main, outputs=main, api_name="refresh_codex_models", show_progress="minimal")
+    return main, image
 
 
 def configure_provider(generation):
@@ -27,12 +83,18 @@ def configure_provider(generation):
 
     @wraps(original_text)
     async def text(model_name, contents, config, *args, **kwargs):
-        if model_name != TEXT_MODEL:
+        if model_name == TEXT_MODEL:
+            selected_model = None
+        elif model_name.startswith(TEXT_MODEL_PREFIX):
+            selected_model = model_name.removeprefix(TEXT_MODEL_PREFIX).strip()
+            if not selected_model:
+                raise BridgeError("Select a Codex model")
+        else:
             return await original_text(model_name, contents, config, *args, **kwargs)
         return_content = kwargs.get("return_content", args[3] if len(args) > 3 else False)
         results = []
         for _ in range(config.candidate_count or 1):
-            answer = await model_response(config.system_instruction, contents)
+            answer = await model_response(config.system_instruction, contents, model=selected_model)
             if return_content:
                 answer = types.Content(role="model", parts=[types.Part.from_text(text=answer)])
             results.append(answer)
@@ -61,7 +123,7 @@ def configure_provider(generation):
     generation.call_openrouter_image_generation_with_retry_async = openrouter
 
 
-def build():
+def build(choices=DEFAULT_TEXT_CHOICES):
     sys.path.insert(0, str(UPSTREAM))
     import app as upstream
     from utils import generation_utils
@@ -69,7 +131,7 @@ def build():
     configure_provider(generation_utils)
     upstream.DEFAULT_MAIN_MODEL = TEXT_MODEL
     upstream.DEFAULT_IMAGE_MODEL = IMAGE_MODEL
-    ui = upstream.build_app()
+    ui = upstream.build_app(model_fields=lambda: model_fields(choices))
     for component in ui.blocks.values():
         label = getattr(component, "label", None)
         if label == "# Candidates":
@@ -94,7 +156,12 @@ def main():
         parser.error(str(error))
 
     os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-    ui, css = build()
+    try:
+        choices = asyncio.run(codex_model_choices())
+    except (BridgeError, OSError, ValueError) as error:
+        print(f"Could not load the Codex model list: {error}", file=sys.stderr)
+        choices = DEFAULT_TEXT_CHOICES
+    ui, css = build(choices)
     ui.launch(server_name="127.0.0.1", server_port=args.port, share=False, css=css)
 
 

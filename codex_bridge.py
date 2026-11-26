@@ -9,10 +9,12 @@ import shutil
 import tempfile
 import threading
 import tomllib
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 MACOS_BUNDLED_CODEX = Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
 TEXT_MODEL = "codex"
+TEXT_MODEL_PREFIX = "codex/"
 IMAGE_MODEL = "codex-image"
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser().resolve()
 REQUEST_LIMIT = threading.BoundedSemaphore(1)
@@ -133,7 +135,8 @@ def format_input(workdir, instruction, contents, *, image=False, ratio=None, siz
     return inputs
 
 
-async def run_turn(workdir, inputs, *, image=False):
+@asynccontextmanager
+async def app_server(workdir):
     env = {key: value for key, value in os.environ.items() if key not in {"OPENAI_API_KEY", "CODEX_API_KEY"}}
     process = await asyncio.create_subprocess_exec(
         *app_server_args(workdir),
@@ -175,18 +178,56 @@ async def run_turn(workdir, inputs, *, image=False):
                     raise BridgeError(f"{method}: {message['error'].get('message', 'Codex request failed')}")
                 return message["result"]
 
-    async def exchange():
+    try:
         await request(1, "initialize", {"clientInfo": {"name": "paperbanana-codex-bridge", "version": "1.0"}})
         await send("initialized")
         account = (await request(2, "account/read", {})).get("account") or {}
         if account.get("type") != "chatgpt":
             raise BridgeError("Sign in to Codex with ChatGPT before using the PaperBanana bridge")
-        thread_id = (await request(3, "thread/start", {
+        yield request, send, receive
+    finally:
+        if process.returncode is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+
+
+async def list_codex_models():
+    with tempfile.TemporaryDirectory(prefix="paperbanana-codex-models-") as temp:
+        try:
+            async with asyncio.timeout(20), app_server(Path(temp).resolve()) as (request, _, _):
+                models = []
+                params = {"limit": 100}
+                request_id = 3
+                while True:
+                    page = await request(request_id, "model/list", params)
+                    models.extend(page["data"])
+                    cursor = page.get("nextCursor")
+                    if not cursor:
+                        return models
+                    params["cursor"] = cursor
+                    request_id += 1
+        except TimeoutError as error:
+            raise BridgeError("Timed out while loading the Codex model list") from error
+
+
+async def run_turn(workdir, inputs, *, image=False, model=None):
+    async def exchange(request, send, receive):
+        thread_params = {
             "cwd": str(workdir),
             "ephemeral": True,
             "sandbox": "read-only",
             "approvalPolicy": "never",
-        }))["thread"]["id"]
+        }
+        if model is not None:
+            thread_params["model"] = model
+        thread_id = (await request(3, "thread/start", thread_params))["thread"]["id"]
         await send("turn/start", {"threadId": thread_id, "input": inputs}, 4)
         text = ""
         image_path = None
@@ -223,29 +264,19 @@ async def run_turn(workdir, inputs, *, image=False):
                 return text
 
     try:
-        return await asyncio.wait_for(exchange(), timeout=TURN_TIMEOUT)
+        async with asyncio.timeout(TURN_TIMEOUT), app_server(workdir) as (request, send, receive):
+            return await exchange(request, send, receive)
     except TimeoutError as error:
         raise BridgeError(f"Codex timed out after {TURN_TIMEOUT // 60} minutes") from error
-    finally:
-        if process.returncode is None:
-            try:
-                process.terminate()
-            except ProcessLookupError:
-                pass
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
 
 
-async def model_response(instruction, contents, *, image=False, ratio=None, size=None):
+async def model_response(instruction, contents, *, image=False, ratio=None, size=None, model=None):
     while not REQUEST_LIMIT.acquire(blocking=False):
         await asyncio.sleep(0.2)
     try:
         with tempfile.TemporaryDirectory(prefix="paperbanana-codex-") as temp:
             workdir = Path(temp).resolve()
             inputs = format_input(workdir, instruction, contents, image=image, ratio=ratio, size=size)
-            return await run_turn(workdir, inputs, image=image)
+            return await run_turn(workdir, inputs, image=image, model=model)
     finally:
         REQUEST_LIMIT.release()
