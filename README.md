@@ -2,27 +2,53 @@
 
 在本机运行 PaperBanana-Interact，通过已登录的 Codex 生成论文示意图，并在浏览器里用多轮反馈改图。仓库包含 PaperBanana-Interact 源码、Python 依赖锁文件和共用桥接器。
 
-## 安装和启动
+## 第一次安装
 
-准备 [uv](https://docs.astral.sh/uv/getting-started/installation/) 以及支持内置生图的 [Codex CLI](https://learn.chatgpt.com/docs/cli)。在 CLI 中用自己的 ChatGPT 账号登录。macOS 上也可以使用 ChatGPT App 自带的 Codex。启动时，uv 会根据锁文件建立 Python 3.12 环境并安装依赖。
+1. 克隆本仓库，或在 GitHub 上点 **Code → Download ZIP** 并解压。打开终端，进入同时包含 `README.md` 和 `pyproject.toml` 的项目目录。
+2. 按官方说明安装 uv，并重新打开终端。运行 `uv --version` 确认安装。 [uv 安装指南](https://docs.astral.sh/uv/getting-started/installation/)
+3. 安装支持 App Server 和内置生图的 Codex CLI。运行 `codex --version` 和 `codex login status` 检查版本与登录状态。如果尚未用 ChatGPT 账号登录，运行 `codex login`，在浏览器中完成登录。每位使用者使用自己的账号。 [Codex CLI 安装指南](https://learn.chatgpt.com/docs/codex/cli#install-codex) · [Codex 登录说明](https://learn.chatgpt.com/docs/auth)
 
-```sh
-./launch
-```
-
-打开 [本地应用](http://127.0.0.1:7861)，保留默认的 `codex` 和 `codex-image`，API Key 留空。进入 **Iterative Refinement**，输入方法描述和图注，生成初稿后点 **Pin**，再发送修改意见。
-
-端口已被使用时，可以指定另一个端口。终端中按 `Ctrl+C` 停止。
+在 macOS 上，第 3 步可以直接使用 ChatGPT App 内置的 Codex。项目会尝试自动找到它。用下面的命令查看登录状态。如果尚未登录，将命令末尾的 `login status` 改为 `login`。
 
 ```sh
-./launch --port 7862
+"/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex" login status
 ```
 
-启动器依次查找 `PAPERBANANA_CODEX_BIN`、`PATH` 中的 `codex`、macOS ChatGPT App 内置的 Codex。可以显式指定可执行文件。
+## 启动和试用
+
+在项目目录运行下面的命令。macOS、Linux 和 Windows PowerShell 使用同一条命令。第一次启动时，uv 会准备 Python 3.12 虚拟环境，并按 `uv.lock` 安装依赖。
 
 ```sh
-PAPERBANANA_CODEX_BIN=/path/to/codex ./launch
+uv run --locked -- python -B launch.py
 ```
+
+macOS 和 Linux 也可以运行 `./launch`。打开 [本地应用](http://127.0.0.1:7861)，保留默认的 `codex` 和 `codex-image`，API Key 留空。进入 **Iterative Refinement**，点 **Load Example** 载入示例，生成初稿后点 **Pin**，再发送修改意见。终端中按 `Ctrl+C` 停止服务。
+
+如果默认端口已被占用，在启动命令末尾加 `--port 7862`，然后打开 [备用端口](http://127.0.0.1:7862)。
+
+## 手动指定 Codex 路径
+
+桥接器依次查找 `PAPERBANANA_CODEX_BIN`、`PATH` 中的 `codex`、macOS ChatGPT App 内置的 Codex。如果安装在自定义目录，或者终端通过别名调用 Codex，可以直接指定可执行文件的完整路径。将示例路径替换成自己的路径，再在同一个终端运行启动命令。
+
+**macOS / Linux**
+
+```sh
+export PAPERBANANA_CODEX_BIN="/path/to/codex"
+"$PAPERBANANA_CODEX_BIN" login status
+uv run --locked -- python -B launch.py
+```
+
+**Windows PowerShell**
+
+```powershell
+$env:PAPERBANANA_CODEX_BIN = 'C:\Tools\codex.exe'
+& $env:PAPERBANANA_CODEX_BIN login status
+uv run --locked -- python -B launch.py
+```
+
+如果页面能打开但生成时提示登录，用桥接器实际选中的 Codex 可执行文件运行 `login`，然后重试生成。
+
+端到端的生图和改图已在 macOS Apple Silicon 上验证。Windows x64 已通过锁文件的目标平台依赖检查。
 
 ## 桥接如何工作
 
