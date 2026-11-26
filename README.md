@@ -6,13 +6,19 @@
 
 1. 克隆本仓库，或在 GitHub 上点 **Code → Download ZIP** 并解压。打开终端，进入同时包含 `README.md` 和 `pyproject.toml` 的项目目录。
 2. 按官方说明安装 uv，并重新打开终端。运行 `uv --version` 确认安装。 [uv 安装指南](https://docs.astral.sh/uv/getting-started/installation/)
-3. 安装支持 App Server 和内置生图的 Codex CLI。运行 `codex --version` 和 `codex login status` 检查版本与登录状态。如果尚未用 ChatGPT 账号登录，运行 `codex login`，在浏览器中完成登录。每位使用者使用自己的账号。 [Codex CLI 安装指南](https://learn.chatgpt.com/docs/codex/cli#install-codex) · [Codex 登录说明](https://learn.chatgpt.com/docs/auth)
+3. 准备支持 App Server 和内置生图的 Codex CLI。使用独立版 CLI 时，运行 `codex --version` 和 `codex login status` 检查版本与登录状态。如果尚未用 ChatGPT 账号登录，运行 `codex login`，在浏览器中完成登录。每位使用者使用自己的账号。 [Codex CLI 安装指南](https://learn.chatgpt.com/docs/codex/cli#install-codex) · [Codex 登录说明](https://learn.chatgpt.com/docs/auth)
 
-在 macOS 上，第 3 步可以直接使用 ChatGPT App 内置的 Codex。项目会尝试自动找到它。用下面的命令查看登录状态。如果尚未登录，将命令末尾的 `login status` 改为 `login`。
+### 已安装 ChatGPT App 时
+
+**macOS** 上，如果 ChatGPT 位于 `/Applications/ChatGPT.app`，启动器会自动查找它内置的 Codex CLI，可以直接进入「启动和试用」。内置 CLI 的完整路径如下，可用来检查登录状态。如果尚未登录，将命令末尾的 `login status` 改为 `login`。
 
 ```sh
 "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex" login status
 ```
+
+如果 App 放在别处，在 Finder 中右键 `ChatGPT.app`，选择 **显示包内容**，进入 `Contents/Resources/codex-cli`。对里面的 `CodexCLI.app` 再选择一次 **显示包内容**，即可在 `Contents/MacOS` 找到 `codex`。把这个文件的完整路径填入下方「手动指定 Codex 路径」中的 `PAPERBANANA_CODEX_BIN`。
+
+**Windows** 上，项目通过 `PATH` 或 `PAPERBANANA_CODEX_BIN` 找到 CLI。可以按第 3 步安装 Windows 版独立 Codex CLI，再用自己的 ChatGPT 账号登录。
 
 ## 启动和试用
 
