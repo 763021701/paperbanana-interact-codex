@@ -16,6 +16,7 @@ MACOS_BUNDLED_CODEX = Path("/Applications/ChatGPT.app/Contents/Resources/codex-c
 TEXT_MODEL = "codex"
 TEXT_MODEL_PREFIX = "codex/"
 IMAGE_MODEL = "codex-image"
+DEFAULT_REASONING_EFFORT = "low"
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser().resolve()
 REQUEST_LIMIT = threading.BoundedSemaphore(1)
 TURN_TIMEOUT = 600
@@ -49,7 +50,7 @@ def app_server_args(workdir):
         'forced_login_method="chatgpt"',
         'model_provider="openai"',
         'web_search="disabled"',
-        'model_reasoning_effort="low"',
+        "model_reasoning_effort=" + json.dumps(DEFAULT_REASONING_EFFORT),
         "features.apps=false",
         "features.plugins=false",
         "features.shell_tool=false",
@@ -198,10 +199,23 @@ async def app_server(workdir):
                 await process.wait()
 
 
-async def list_codex_models():
+def thread_settings(workdir, model=None):
+    settings = {
+        "cwd": str(workdir),
+        "ephemeral": True,
+        "sandbox": "read-only",
+        "approvalPolicy": "never",
+    }
+    if model is not None:
+        settings["model"] = model
+    return settings
+
+
+async def discover_codex_models():
     with tempfile.TemporaryDirectory(prefix="paperbanana-codex-models-") as temp:
+        workdir = Path(temp).resolve()
         try:
-            async with asyncio.timeout(20), app_server(Path(temp).resolve()) as (request, _, _):
+            async with asyncio.timeout(20), app_server(workdir) as (request, _, _):
                 models = []
                 params = {"limit": 100}
                 request_id = 3
@@ -210,25 +224,23 @@ async def list_codex_models():
                     models.extend(page["data"])
                     cursor = page.get("nextCursor")
                     if not cursor:
-                        return models
+                        break
                     params["cursor"] = cursor
                     request_id += 1
+                # Resolve the locally configured default without sending a turn.
+                default = await request(request_id + 1, "thread/start", thread_settings(workdir))
+                return models, default.get("model")
         except TimeoutError as error:
             raise BridgeError("Timed out while loading the Codex model list") from error
 
 
-async def run_turn(workdir, inputs, *, image=False, model=None):
+async def run_turn(workdir, inputs, *, image=False, model=None, effort=None):
     async def exchange(request, send, receive):
-        thread_params = {
-            "cwd": str(workdir),
-            "ephemeral": True,
-            "sandbox": "read-only",
-            "approvalPolicy": "never",
-        }
-        if model is not None:
-            thread_params["model"] = model
-        thread_id = (await request(3, "thread/start", thread_params))["thread"]["id"]
-        await send("turn/start", {"threadId": thread_id, "input": inputs}, 4)
+        thread_id = (await request(3, "thread/start", thread_settings(workdir, model)))["thread"]["id"]
+        turn_params = {"threadId": thread_id, "input": inputs}
+        if effort is not None:
+            turn_params["effort"] = effort
+        await send("turn/start", turn_params, 4)
         text = ""
         image_path = None
         image_failure = ""
@@ -270,13 +282,13 @@ async def run_turn(workdir, inputs, *, image=False, model=None):
         raise BridgeError(f"Codex timed out after {TURN_TIMEOUT // 60} minutes") from error
 
 
-async def model_response(instruction, contents, *, image=False, ratio=None, size=None, model=None):
+async def model_response(instruction, contents, *, image=False, ratio=None, size=None, model=None, effort=None):
     while not REQUEST_LIMIT.acquire(blocking=False):
         await asyncio.sleep(0.2)
     try:
         with tempfile.TemporaryDirectory(prefix="paperbanana-codex-") as temp:
             workdir = Path(temp).resolve()
             inputs = format_input(workdir, instruction, contents, image=image, ratio=ratio, size=size)
-            return await run_turn(workdir, inputs, image=image, model=model)
+            return await run_turn(workdir, inputs, image=image, model=model, effort=effort)
     finally:
         REQUEST_LIMIT.release()

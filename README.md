@@ -36,6 +36,8 @@ macOS 和 Linux 也可以运行 `./launch`。打开 [本地应用](http://127.0.
 
 展开 **Overall Settings**。**Main Model** 从当前账号的 Codex 模型目录列出支持文本和图片输入的模型。选 **Codex default** 会跟随 Codex 的默认模型，也可以指定列表里的模型。切换账号后，点 **Refresh Codex models** 重新读取列表。
 
+**Reasoning Effort** 显示所选 Codex LLM 支持的推理强度，优先默认使用 `low`。该设置用于规划、审图和改图描述。切换模型时，会保留该模型支持的当前档位，或回到它支持的初始档位。
+
 **Image Model** 的默认选项是 Codex 内置生图。Codex 自动选择图像模型。两个下拉框也接受已经配置好相应 API 的上游模型名。 [Codex 内置生图说明](https://learn.chatgpt.com/docs/image-generation)
 
 ## 手动指定 Codex 路径

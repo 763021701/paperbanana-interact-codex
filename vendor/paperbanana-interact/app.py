@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from contextlib import nullcontext
 import re
 import tempfile
 from io import BytesIO
@@ -310,8 +311,8 @@ def candidate_tile(result: dict, index: int, mode: str, key_prefix: str, pin=Non
                         gr.Markdown(clean_text(result[suggestion_key]))
 
 
-# Modified for PaperBanana-Interact Codex Bridge: clients can supply their model selectors.
-def build_app(*, model_fields=None) -> gr.Blocks:
+# Modified for PaperBanana-Interact Codex Bridge: clients can supply model selectors and request settings.
+def build_app(*, model_fields=None, model_request=nullcontext) -> gr.Blocks:
     with gr.Blocks(title="PaperBanana", fill_width=True) as app:
         generation_state = gr.State([])
         generation_mode_state = gr.State("demo_full")
@@ -352,8 +353,9 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                             info="Image model that renders the diagram.",
                             scale=2,
                         )
+                        model_settings = []
                     else:
-                        main_model, image_model = model_fields()
+                        main_model, image_model, *model_settings = model_fields()
                     ratio = gr.Dropdown(
                         ["21:9", "16:9", "3:2"],
                         value="21:9",
@@ -543,11 +545,13 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                 clear_generate.click(lambda: ("", ""), outputs=[generate_method, generate_caption])
 
                 async def run_generation(
-                    method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
+                    method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key,
+                    *settings,
                 ):
-                    results = await generate_candidates(
-                        method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
-                    )
+                    with model_request(text_model, *settings):
+                        results = await generate_candidates(
+                            method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
+                        )
                     return (
                         f"Generated {len(results)} candidates.",
                         results,
@@ -581,6 +585,7 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                         main_model,
                         image_model,
                         google_api_key,
+                        *model_settings,
                     ],
                     outputs=[generation_status, generation_state, generation_mode_state, generate_button],
                     show_progress_on=generation_status,  # keep the overlay off the button
@@ -738,11 +743,13 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                 clear_interactive.click(lambda: ("", ""), outputs=[interactive_method, interactive_caption])
 
                 async def start_interactive(
-                    method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
+                    method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key,
+                    *settings,
                 ):
-                    results = await generate_candidates(
-                        method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
-                    )
+                    with model_request(text_model, *settings):
+                        results = await generate_candidates(
+                            method, caption, mode, retrieval_mode, count, ratio, rounds, text_model, img_model, api_key
+                        )
                     return open_session(results, mode)
 
                 # Step 1 validates and swaps the status text instantly; step 2 is the real run.
@@ -771,6 +778,7 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                         main_model,
                         image_model,
                         google_api_key,
+                        *model_settings,
                     ],
                     outputs=[interactive_status, interactive_state, interactive_chat, chat_input],
                     show_progress_on=interactive_status,
@@ -794,25 +802,27 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                     return "Refining candidates...", state, state["chat"], ""
 
                 async def run_feedback(
-                    state, refiner_name, retrieval_mode, turn_count, text_model, img_model, iter_rounds, api_key
+                    state, refiner_name, retrieval_mode, turn_count, text_model, img_model, iter_rounds, api_key,
+                    *settings,
                 ):
                     latest_index = len(state["versions"]) - 1
                     latest = state["versions"][latest_index]
                     pinned = state.get("pinned", {}).get(str(latest_index), 0)
                     if pinned >= len(latest["results"]):
                         pinned = 0
-                    results = await refine_candidates(
-                        latest["results"][pinned],
-                        state["chat"],
-                        turn_count,
-                        refiner_name,
-                        retrieval_mode,
-                        text_model,
-                        img_model,
-                        iter_rounds,
-                        latest["exp_mode"],
-                        api_key,
-                    )
+                    with model_request(text_model, *settings):
+                        results = await refine_candidates(
+                            latest["results"][pinned],
+                            state["chat"],
+                            turn_count,
+                            refiner_name,
+                            retrieval_mode,
+                            text_model,
+                            img_model,
+                            iter_rounds,
+                            latest["exp_mode"],
+                            api_key,
+                        )
                     state = {
                         **state,
                         "versions": state["versions"] + [{"results": results, "exp_mode": latest["exp_mode"]}],
@@ -852,6 +862,7 @@ def build_app(*, model_fields=None) -> gr.Blocks:
                         image_model,
                         iter_rounds,
                         google_api_key,
+                        *model_settings,
                     ],
                     [interactive_status, interactive_state, interactive_chat],
                     show_progress_on=interactive_status,
