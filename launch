@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if ! command -v uv >/dev/null 2>&1; then
+    printf '%s\n' 'Install uv before starting PaperBanana-Interact: https://docs.astral.sh/uv/getting-started/installation/' >&2
+    exit 1
+fi
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec uv run --locked --project "$project_dir" -- python -B "$project_dir/launch.py" "$@"
